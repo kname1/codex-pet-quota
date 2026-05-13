@@ -6,10 +6,6 @@ Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class NativeMouse {
-  [DllImport("kernel32.dll")]
-  public static extern IntPtr GetConsoleWindow();
-  [DllImport("user32.dll")]
-  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")]
   public static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")]
@@ -22,12 +18,7 @@ public static class NativeMouse {
 
 $ErrorActionPreference = "SilentlyContinue"
 [NativeMouse]::SetProcessDPIAware() | Out-Null
-$devMode = $args -contains "--dev"
 $showOnStart = $args -contains "--show"
-if (-not $devMode) {
-  $console = [NativeMouse]::GetConsoleWindow()
-  if ($console -ne [IntPtr]::Zero) { [NativeMouse]::ShowWindow($console, 0) | Out-Null }
-}
 
 $codexHome = Join-Path $env:USERPROFILE ".codex"
 $statePath = Join-Path $codexHome ".codex-global-state.json"
@@ -153,11 +144,19 @@ $window.Topmost = $true
 $window.ShowInTaskbar = $false
 $window.ResizeMode = "NoResize"
 
+$labelColumnWidth = 44
+$valueColumnWidth = 50
+$resetColumnWidth = 82
+$rowHeight = 24
+
 $grid = New-Object Windows.Controls.Grid
 $grid.Margin = New-Object Windows.Thickness 0
-$grid.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition))
-$grid.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition))
-foreach ($width in @(50, 62, 118)) {
+foreach ($height in @($rowHeight, $rowHeight)) {
+  $row = New-Object Windows.Controls.RowDefinition
+  $row.Height = New-Object Windows.GridLength $height
+  $grid.RowDefinitions.Add($row)
+}
+foreach ($width in @($labelColumnWidth, $valueColumnWidth, $resetColumnWidth)) {
   $col = New-Object Windows.Controls.ColumnDefinition
   $col.Width = New-Object Windows.GridLength $width
   $grid.ColumnDefinitions.Add($col)
@@ -167,7 +166,7 @@ function New-Text($text, $col, $row, $bold) {
   $tb = New-Object Windows.Controls.TextBlock
   $tb.Text = $text
   $tb.FontFamily = "Segoe UI"
-  $tb.FontSize = 14
+  $tb.FontSize = 13.5
   $tb.FontWeight = if ($bold) { "Bold" } else { "SemiBold" }
   $tb.Foreground = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(219,229,239))
   $tb.HorizontalAlignment = "Center"
@@ -219,8 +218,8 @@ function Position-Window {
     [IO.File]::WriteAllText((Join-Path $appHome "last-position.json"), '{"error":"no pet bounds"}')
     return
   }
-  $width = [Math]::Max(190, [Math]::Min(300, $pet.Width * 2.75))
-  $height = [Math]::Max(64, [Math]::Min(96, $pet.Height * 0.86))
+  $width = $labelColumnWidth + $valueColumnWidth + $resetColumnWidth
+  $height = $rowHeight * 2
   $window.Width = $width
   $window.Height = $height
   $left = $pet.X + $pet.Width / 2 - $width / 2
