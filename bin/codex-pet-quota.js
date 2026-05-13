@@ -47,7 +47,7 @@ function launch(args = [], detached = true) {
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      `Start-Process -FilePath powershell.exe -WorkingDirectory ${quotePs(rootDir)} -ArgumentList @('-STA','-NoProfile','-ExecutionPolicy','Bypass','-File',${quotePs(windowsAppEntry)}${args.map((arg) => `,${quotePs(arg)}`).join("")})`
+      `Start-Process -FilePath powershell.exe -WorkingDirectory ${quotePs(rootDir)} -WindowStyle Minimized -ArgumentList @('-STA','-NoProfile','-ExecutionPolicy','Bypass','-File',${quotePs(windowsAppEntry)}${args.map((arg) => `,${quotePs(arg)}`).join("")})`
     ];
     const result = spawnSync("powershell.exe", psArgs, { stdio: "inherit", windowsHide: true });
     if (result.status && result.status !== 0) {
