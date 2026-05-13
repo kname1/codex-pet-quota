@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="145" viewBox="0 0 220 145" role="img" aria-label="Codex Pet Quota dark mode preview">
+  <rect width="220" height="145" fill="#151515"/>
+  <g transform="translate(84 16)" shape-rendering="crispEdges">
+    <rect x="18" y="0" width="7" height="7" rx="1" fill="#7266ad"/>
+    <rect x="34" y="0" width="7" height="7" rx="1" fill="#7266ad"/>
+    <rect x="10" y="10" width="40" height="35" rx="8" fill="#6d5da8"/>
+    <rect x="16" y="18" width="6" height="8" rx="2" fill="#2c2332"/>
+    <rect x="38" y="18" width="6" height="8" rx="2" fill="#2c2332"/>
+    <rect x="25" y="30" width="10" height="5" rx="2" fill="#46304a"/>
+    <rect x="0" y="22" width="8" height="18" rx="2" fill="#6d5da8"/>
+    <rect x="52" y="22" width="8" height="18" rx="2" fill="#6d5da8"/>
+    <rect x="11" y="46" width="8" height="8" rx="1" fill="#6d5da8"/>
+    <rect x="41" y="46" width="8" height="8" rx="1" fill="#6d5da8"/>
+  </g>
+  <g font-family="Inter, Segoe UI, Arial, sans-serif" font-weight="700" font-size="16" fill="#dbe5ef">
+    <text x="14" y="102">5h</text>
+    <text x="91" y="102">9%</text>
+    <text x="151" y="102">5.13 16:54</text>
+    <text x="4" y="126">Week</text>
+    <text x="91" y="126">63%</text>
+    <text x="151" y="126">5.19 14:55</text>
+  </g>
+</svg>
