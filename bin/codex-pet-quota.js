@@ -47,7 +47,7 @@ function launch(args = [], detached = true) {
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      `Start-Process -FilePath powershell.exe -WorkingDirectory ${quotePs(rootDir)} -WindowStyle Hidden -ArgumentList @('-STA','-NoProfile','-ExecutionPolicy','Bypass','-File',${quotePs(windowsAppEntry)}${args.map((arg) => `,${quotePs(arg)}`).join("")})`
+      `Start-Process -FilePath powershell.exe -WorkingDirectory ${quotePs(rootDir)} -ArgumentList @('-STA','-NoProfile','-ExecutionPolicy','Bypass','-File',${quotePs(windowsAppEntry)}${args.map((arg) => `,${quotePs(arg)}`).join("")})`
     ];
     const result = spawnSync("powershell.exe", psArgs, { stdio: "inherit", windowsHide: true });
     if (result.status && result.status !== 0) {
@@ -165,6 +165,7 @@ Usage:
   codex-pet-quota install   Install config, enable login start, and launch
   codex-pet-quota start     Launch in the background
   codex-pet-quota dev       Launch in the foreground
+  codex-pet-quota show      Launch and show quota once
   codex-pet-quota stop      Stop the background app
   codex-pet-quota status    Show process status
   codex-pet-quota uninstall Stop and show cleanup path
@@ -194,6 +195,9 @@ switch (command) {
     break;
   case "dev":
     launch(["--dev"], false);
+    break;
+  case "show":
+    launch(["--show"], true);
     break;
   case "stop":
     stop();

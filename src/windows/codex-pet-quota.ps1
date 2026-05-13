@@ -1,10 +1,17 @@
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
+Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class NativeMouse {
+  [DllImport("kernel32.dll")]
+  public static extern IntPtr GetConsoleWindow();
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")]
+  public static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")]
   public static extern bool GetCursorPos(out POINT lpPoint);
   [DllImport("user32.dll")]
@@ -14,6 +21,13 @@ public static class NativeMouse {
 "@
 
 $ErrorActionPreference = "SilentlyContinue"
+[NativeMouse]::SetProcessDPIAware() | Out-Null
+$devMode = $args -contains "--dev"
+$showOnStart = $args -contains "--show"
+if (-not $devMode) {
+  $console = [NativeMouse]::GetConsoleWindow()
+  if ($console -ne [IntPtr]::Zero) { [NativeMouse]::ShowWindow($console, 0) | Out-Null }
+}
 
 $codexHome = Join-Path $env:USERPROFILE ".codex"
 $statePath = Join-Path $codexHome ".codex-global-state.json"
@@ -36,7 +50,7 @@ $script:maxMove = 0
 
 function Get-PetBounds {
   try {
-    $state = Get-Content $statePath -Raw | ConvertFrom-Json
+    $state = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
     $atom = $state.'electron-persisted-atom-state'
     $overlay = $atom.'electron-avatar-overlay-bounds'
     if (-not $overlay) { $overlay = $state.'electron-avatar-overlay-bounds' }
@@ -78,7 +92,7 @@ function Get-RemainingText($window) {
 
 function Fetch-Quota {
   try {
-    $auth = Get-Content $authPath -Raw | ConvertFrom-Json
+    $auth = Get-Content $authPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $token = $auth.tokens.access_token
     if (-not $token) { throw "No access token" }
     $headers = @{
@@ -173,26 +187,50 @@ $weekReset = New-Text "..." 2 1 $false
 $window.Content = $grid
 
 function Apply-Theme {
-  $isLight = $false
-  try {
-    $appsUseLight = Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" -Name AppsUseLightTheme
-    $isLight = $appsUseLight -eq 1
-  } catch {}
+  $isLight = Test-QuotaBackgroundLight
   $color = if ($isLight) { [Windows.Media.Color]::FromRgb(67,82,104) } else { [Windows.Media.Color]::FromRgb(219,229,239) }
   $strong = if ($isLight) { [Windows.Media.Color]::FromRgb(17,24,39) } else { [Windows.Media.Color]::FromRgb(245,248,252) }
   foreach ($tb in @($fiveLabel,$fiveReset,$weekLabel,$weekReset)) { $tb.Foreground = New-Object Windows.Media.SolidColorBrush $color }
   foreach ($tb in @($fiveValue,$weekValue)) { $tb.Foreground = New-Object Windows.Media.SolidColorBrush $strong }
 }
 
+function Test-QuotaBackgroundLight {
+  try {
+    $pet = Get-PetBounds
+    if (-not $pet) { return $false }
+    $x = [Math]::Max(0, [int]($pet.X + $pet.Width / 2))
+    $y = [Math]::Max(0, [int]($pet.Y + $pet.Height + 22))
+    $bmp = New-Object Drawing.Bitmap 1, 1
+    $g = [Drawing.Graphics]::FromImage($bmp)
+    $g.CopyFromScreen($x, $y, 0, 0, (New-Object Drawing.Size 1, 1))
+    $pixel = $bmp.GetPixel(0, 0)
+    $g.Dispose()
+    $bmp.Dispose()
+    $luma = (0.2126 * $pixel.R) + (0.7152 * $pixel.G) + (0.0722 * $pixel.B)
+    return $luma -gt 150
+  } catch {
+    return $false
+  }
+}
+
 function Position-Window {
   $pet = Get-PetBounds
-  if (-not $pet) { return }
+  if (-not $pet) {
+    [IO.File]::WriteAllText((Join-Path $appHome "last-position.json"), '{"error":"no pet bounds"}')
+    return
+  }
   $width = [Math]::Max(190, [Math]::Min(300, $pet.Width * 2.75))
   $height = [Math]::Max(64, [Math]::Min(96, $pet.Height * 0.86))
   $window.Width = $width
   $window.Height = $height
-  $window.Left = [Math]::Max(0, $pet.X + $pet.Width / 2 - $width / 2)
-  $window.Top = $pet.Y + $pet.Height + 2 - $height * 0.18
+  $left = $pet.X + $pet.Width / 2 - $width / 2
+  $top = $pet.Y + $pet.Height + 2 - $height * 0.18
+  $screenLeft = [Windows.SystemParameters]::VirtualScreenLeft
+  $screenTop = [Windows.SystemParameters]::VirtualScreenTop
+  $screenRight = $screenLeft + [Windows.SystemParameters]::VirtualScreenWidth
+  $screenBottom = $screenTop + [Windows.SystemParameters]::VirtualScreenHeight
+  $window.Left = [Math]::Max($screenLeft, [Math]::Min($left, $screenRight - $width))
+  $window.Top = [Math]::Max($screenTop, [Math]::Min($top, $screenBottom - $height))
 }
 
 function Update-Texts($quota) {
@@ -278,4 +316,7 @@ $mouseTimer.Add_Tick({
 $mouseTimer.Start()
 
 $window.Hide()
+if ($showOnStart) {
+  $window.Dispatcher.BeginInvoke([Action]{ Show-Quota $false }) | Out-Null
+}
 [Windows.Threading.Dispatcher]::Run()
