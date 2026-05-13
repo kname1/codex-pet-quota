@@ -6,6 +6,10 @@ Add-Type @"
 using System;
 using System.Runtime.InteropServices;
 public static class NativeMouse {
+  [DllImport("kernel32.dll")]
+  public static extern IntPtr GetConsoleWindow();
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")]
   public static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")]
@@ -18,7 +22,12 @@ public static class NativeMouse {
 
 $ErrorActionPreference = "SilentlyContinue"
 [NativeMouse]::SetProcessDPIAware() | Out-Null
+$devMode = $args -contains "--dev"
 $showOnStart = $args -contains "--show"
+if (-not $devMode) {
+  $console = [NativeMouse]::GetConsoleWindow()
+  if ($console -ne [IntPtr]::Zero) { [NativeMouse]::ShowWindow($console, 0) | Out-Null }
+}
 
 $codexHome = Join-Path $env:USERPROFILE ".codex"
 $statePath = Join-Path $codexHome ".codex-global-state.json"
@@ -239,11 +248,22 @@ function Update-Texts($quota) {
   $weekReset.Text = $quota.WeekReset
 }
 
+function Ensure-WindowVisible {
+  try {
+    $helper = New-Object Windows.Interop.WindowInteropHelper -ArgumentList $window
+    if ($helper.Handle -ne [IntPtr]::Zero) {
+      [NativeMouse]::ShowWindow($helper.Handle, 5) | Out-Null
+    }
+  } catch {}
+}
+
 function Show-Quota([bool]$animate) {
   Apply-Theme
   Position-Window
   Update-Texts (Ensure-Quota)
+  $window.WindowState = "Normal"
   if (-not $window.IsVisible) { $window.Show() } else { $window.Activate() | Out-Null }
+  Ensure-WindowVisible
   if ($animate) {
     $scale = New-Object Windows.Media.ScaleTransform 0.75, 0.75
     $grid.RenderTransformOrigin = New-Object Windows.Point 0.5, 0

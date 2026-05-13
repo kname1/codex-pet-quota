@@ -10,6 +10,7 @@ const windowsAppEntry = path.join(rootDir, "src", "windows", "codex-pet-quota.ps
 const stateDir = path.join(os.homedir(), ".codex-pet-quota");
 const pidFile = path.join(stateDir, "app.pid");
 const configFile = path.join(stateDir, "config.json");
+const autostartScript = path.join(stateDir, "start.vbs");
 const runKeyName = "CodexPetQuota";
 
 function ensureStateDir() {
@@ -41,13 +42,18 @@ function launch(args = [], detached = true) {
   }
 
   ensureStateDir();
+  if (detached && !args.includes("--show") && isRunning(readPid())) {
+    console.log(`Codex Pet Quota is already running (pid ${readPid()}).`);
+    console.log(`State: ${stateDir}`);
+    return;
+  }
   if (detached) {
     const psArgs = [
       "-NoProfile",
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      `Start-Process -FilePath powershell.exe -WorkingDirectory ${quotePs(rootDir)} -WindowStyle Minimized -ArgumentList @('-STA','-NoProfile','-ExecutionPolicy','Bypass','-File',${quotePs(windowsAppEntry)}${args.map((arg) => `,${quotePs(arg)}`).join("")})`
+      `Start-Process -FilePath powershell.exe -WorkingDirectory ${quotePs(rootDir)} -WindowStyle Hidden -ArgumentList @('-STA','-NoProfile','-ExecutionPolicy','Bypass','-File',${quotePs(windowsAppEntry)}${args.map((arg) => `,${quotePs(arg)}`).join("")})`
     ];
     const result = spawnSync("powershell.exe", psArgs, { stdio: "inherit", windowsHide: true });
     if (result.status && result.status !== 0) {
@@ -70,6 +76,22 @@ function quotePs(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
+function quoteVbs(value) {
+  return `"${String(value).replace(/"/g, '""')}"`;
+}
+
+function writeAutostartScript() {
+  ensureStateDir();
+  const command = `${quoteVbs(process.execPath)} ${quoteVbs(__filename)} start`;
+  fs.writeFileSync(
+    autostartScript,
+    [
+      'Set shell = CreateObject("WScript.Shell")',
+      `shell.Run ${quoteVbs(command)}, 0, False`
+    ].join("\r\n")
+  );
+}
+
 function runRegistryCommand(action) {
   if (process.platform !== "win32") return;
 
@@ -83,7 +105,7 @@ function runRegistryCommand(action) {
           "/t",
           "REG_SZ",
           "/d",
-          `"${process.execPath}" "${__filename}" start`,
+          `wscript.exe "${autostartScript}"`,
           "/f"
         ]
       : ["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", runKeyName, "/f"];
@@ -98,6 +120,7 @@ function runRegistryCommand(action) {
 
 function install() {
   ensureStateDir();
+  stopRunning({ quiet: true });
   if (!fs.existsSync(configFile)) {
     fs.writeFileSync(
       configFile,
@@ -116,33 +139,43 @@ function install() {
       )
     );
   }
+  writeAutostartScript();
   runRegistryCommand("add");
   launch(["--install"], true);
 }
 
-function stop() {
+function stopRunning({ quiet = false } = {}) {
   const pid = readPid();
   if (!isRunning(pid)) {
-    console.log("Codex Pet Quota is not running.");
-    return;
+    if (!quiet) console.log("Codex Pet Quota is not running.");
+    return false;
   }
 
   try {
     if (process.platform === "win32") {
-      spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "inherit", windowsHide: true });
+      spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: quiet ? "ignore" : "inherit", windowsHide: true });
     } else {
       process.kill(pid, "SIGTERM");
     }
-    console.log("Stop requested.");
+    if (!quiet) console.log("Stop requested.");
+    return true;
   } catch (error) {
-    console.error(`Could not stop process ${pid}: ${error.message}`);
+    if (!quiet) console.error(`Could not stop process ${pid}: ${error.message}`);
     process.exitCode = 1;
+    return false;
   }
+}
+
+function stop() {
+  stopRunning({ quiet: false });
 }
 
 function uninstall() {
   runRegistryCommand("delete");
   stop();
+  try {
+    fs.rmSync(autostartScript, { force: true });
+  } catch {}
   console.log("");
   console.log("Autostart disabled.");
   console.log(`You can remove local settings manually: ${stateDir}`);
