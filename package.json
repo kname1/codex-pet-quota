@@ -1,6 +1,6 @@
 {
   "name": "codex-pet-quota",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "A companion quota display for Codex Desktop pets that shows 5h and weekly remaining usage.",
   "license": "MIT",
   "author": "kname1",
@@ -33,6 +33,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "postinstall": "node bin/codex-pet-quota.js postinstall",
     "start": "node bin/codex-pet-quota.js start",
     "dev": "node bin/codex-pet-quota.js dev",
     "status": "node bin/codex-pet-quota.js status",
@@ -40,9 +41,6 @@
   },
   "dependencies": {
     "electron": "^41.5.2"
-  },
-  "overrides": {
-    "global-agent": "^4.1.3"
   },
   "engines": {
     "node": ">=20"

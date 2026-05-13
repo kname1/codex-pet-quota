@@ -111,7 +111,7 @@ function install() {
     );
   }
   runRegistryCommand("add");
-  launch(["--install"], false);
+  launch(["--install"], true);
 }
 
 function stop() {
@@ -170,6 +170,14 @@ Quick start:
 `);
 }
 
+function postinstall() {
+  console.log("");
+  console.log("Codex Pet Quota installed.");
+  console.log("Run this once to launch it and enable auto-start:");
+  console.log("  codex-pet-quota install");
+  console.log("");
+}
+
 const command = process.argv[2] || "start";
 
 switch (command) {
@@ -195,6 +203,9 @@ switch (command) {
   case "--help":
   case "-h":
     help();
+    break;
+  case "postinstall":
+    postinstall();
     break;
   default:
     console.error(`Unknown command: ${command}`);
