@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
 const rootDir = path.resolve(__dirname, "..");
-const appEntry = path.join(rootDir, "src", "main", "app.js");
+const windowsAppEntry = path.join(rootDir, "src", "windows", "codex-pet-quota.ps1");
 const stateDir = path.join(os.homedir(), ".codex-pet-quota");
 const pidFile = path.join(stateDir, "app.pid");
 const configFile = path.join(stateDir, "config.json");
@@ -34,34 +34,40 @@ function isRunning(pid) {
   }
 }
 
-function electronPath() {
-  try {
-    return require("electron");
-  } catch {
-    return null;
-  }
-}
-
 function launch(args = [], detached = true) {
-  const electron = electronPath();
-  if (!electron) {
-    console.error("Electron is not installed. Run `npm install` or use `npx codex-pet-quota@latest`.");
+  if (process.platform !== "win32") {
+    console.error("Codex Pet Quota currently supports Windows. macOS and Linux support is planned.");
     process.exit(1);
   }
 
   ensureStateDir();
-  const child = spawn(electron, [appEntry, ...args], {
-    cwd: rootDir,
-    detached,
-    stdio: detached ? "ignore" : "inherit",
-    windowsHide: true
-  });
-
   if (detached) {
-    child.unref();
+    const psArgs = [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      `Start-Process -FilePath powershell.exe -WorkingDirectory ${quotePs(rootDir)} -WindowStyle Hidden -ArgumentList @('-STA','-NoProfile','-ExecutionPolicy','Bypass','-File',${quotePs(windowsAppEntry)}${args.map((arg) => `,${quotePs(arg)}`).join("")})`
+    ];
+    const result = spawnSync("powershell.exe", psArgs, { stdio: "inherit", windowsHide: true });
+    if (result.status && result.status !== 0) {
+      process.exitCode = result.status;
+      return;
+    }
     console.log("Codex Pet Quota started.");
     console.log(`State: ${stateDir}`);
+    return;
   }
+
+  spawn("powershell.exe", ["-STA", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", windowsAppEntry, ...args], {
+    cwd: rootDir,
+    stdio: "inherit",
+    windowsHide: false
+  });
+}
+
+function quotePs(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
 }
 
 function runRegistryCommand(action) {
@@ -98,7 +104,7 @@ function install() {
       JSON.stringify(
         {
           autoStart: true,
-          refreshIntervalMs: 300000,
+          refreshIntervalMs: 60000,
           bubbleDismissMs: 7000,
           hotspot: {
             enabled: true,
@@ -135,7 +141,6 @@ function stop() {
 }
 
 function uninstall() {
-  launch(["--uninstall"], false);
   runRegistryCommand("delete");
   stop();
   console.log("");

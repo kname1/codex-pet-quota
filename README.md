@@ -12,12 +12,6 @@ Show Codex remaining quota under your Codex Desktop pet.
 Install and enable auto-start:
 
 ```powershell
-$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'; npx codex-pet-quota@latest install
-```
-
-If you are outside mainland China, this is also fine:
-
-```powershell
 npx codex-pet-quota@latest install
 ```
 
@@ -31,6 +25,7 @@ Then open Codex Desktop, select a pet, and hover or click it.
 - Proactively warns at `20%`, `10%`, and `5%`.
 - Hides while dragging the pet.
 - Runs outside Codex, so Codex updates should not overwrite it.
+- No Electron download.
 
 ## Commands
 
@@ -40,8 +35,6 @@ npx codex-pet-quota@latest status
 npx codex-pet-quota@latest stop
 npx codex-pet-quota@latest uninstall
 ```
-
-Slow install usually means Electron is downloading slowly. Set `ELECTRON_MIRROR` as shown above.
 
 ## Privacy
 

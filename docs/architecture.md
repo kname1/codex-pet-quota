@@ -1,49 +1,42 @@
 # Architecture
 
-## Design Choice
+## Design
 
-The project runs as an external companion app instead of patching Codex Desktop. This is the main update-safety boundary.
+Codex Pet Quota runs as an external companion app. It does not patch Codex Desktop, so normal Codex updates should not overwrite it.
 
 ```text
 Codex Desktop
-  ├─ official pet rendering
-  └─ writes last known pet bounds
+  ├─ renders the selected pet
+  └─ stores the last known pet bounds
 
 codex-pet-quota
-  ├─ reads pet bounds when showing quota
-  ├─ reads quota locally
-  ├─ passively watches pet clicks on Windows
-  └─ owns a compact quota overlay
+  ├─ reads the pet bounds from the local Codex state file
+  ├─ reads the existing Codex auth token locally
+  ├─ fetches quota from the Codex usage endpoint
+  └─ renders a compact native quota label under the pet
 ```
 
-## Why Not Reuse the Internal Codex Bubble Directly?
+## Runtime
 
-Codex Desktop already renders pet bubbles internally, but there is no stable public pet bubble API in the custom pet contract. Reusing the internal UI would likely require patching app internals, which could break after a Codex update.
+The Windows release uses a small PowerShell/WPF overlay instead of Electron. This keeps the npm package small and avoids downloading an Electron binary during install.
 
-The current MVP copies the behavior visually with an external overlay. If Codex exposes an official pet interaction API later, only the overlay adapter should need to change.
+The Node CLI is only responsible for:
 
-## Drag Behavior
+- installing the command
+- adding/removing the Windows login startup entry
+- starting/stopping the PowerShell companion process
 
-The overlay does not try to follow the pet while it is being dragged. Cross-process window tracking is fragile across Electron, Windows, macOS, Linux/X11, and Linux/Wayland. Instead, the app hides the quota label when a drag starts and lets the user click the pet again after repositioning.
+## Behavior
 
-## Data Flow
+- Hover or click the pet to show quota.
+- Quota refreshes once per minute in the background.
+- Low-quota warnings appear once at `20%`, `10%`, and `5%`.
+- The label hides while the pet is being dragged.
 
-1. User clicks the pet.
-2. Electron main process requests quota.
-3. Quota reader tries the local Codex usage API with `~/.codex/auth.json`.
-4. Quota reader falls back to `~/.codex/usage-limits.json`.
-5. Bubble window renders the result.
+## Local Files
 
-## Stable Components
+- App state: `%USERPROFILE%\.codex-pet-quota`
+- Codex auth: `%USERPROFILE%\.codex\auth.json`
+- Codex pet bounds: `%USERPROFILE%\.codex\.codex-global-state.json`
 
-- npm CLI
-- user config under `~/.codex-pet-quota`
-- quota normalization
-- tray and hotkey fallback
-
-## Fragile Components
-
-- Pet bounds discovery from `~/.codex/.codex-global-state.json`
-- Pet bounds detection depends on Codex's saved pet position
-
-Those are isolated in `src/main/petBounds.js` so future Codex UI changes are easier to patch.
+No tokens or quota data are sent anywhere except the official Codex usage endpoint.
