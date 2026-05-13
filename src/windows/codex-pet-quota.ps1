@@ -24,6 +24,12 @@ $ErrorActionPreference = "SilentlyContinue"
 [NativeMouse]::SetProcessDPIAware() | Out-Null
 $devMode = $args -contains "--dev"
 $showOnStart = $args -contains "--show"
+$packageDir = $null
+for ($i = 0; $i -lt $args.Count; $i++) {
+  if ($args[$i] -eq "--package-dir" -and ($i + 1) -lt $args.Count) {
+    $packageDir = $args[$i + 1]
+  }
+}
 if (-not $devMode) {
   $console = [NativeMouse]::GetConsoleWindow()
   if ($console -ne [IntPtr]::Zero) { [NativeMouse]::ShowWindow($console, 0) | Out-Null }
@@ -44,9 +50,12 @@ $script:lastHoverShow = [DateTime]::MinValue
 $script:lastWarningKey = $null
 $script:lastWarningAt = [DateTime]::MinValue
 $script:wasDown = $false
+$script:downStartedOnPet = $false
 $script:downX = 0
 $script:downY = 0
 $script:maxMove = 0
+$script:layoutWidth = 176
+$script:layoutHeight = 48
 
 function Get-PetBounds {
   try {
@@ -70,6 +79,17 @@ function Get-PetBounds {
 function Test-PointInBounds($point, $bounds) {
   if (-not $point -or -not $bounds) { return $false }
   return $point.X -ge $bounds.X -and $point.X -le ($bounds.X + $bounds.Width) -and $point.Y -ge $bounds.Y -and $point.Y -le ($bounds.Y + $bounds.Height)
+}
+
+function Get-ClickBounds($bounds) {
+  if (-not $bounds) { return $null }
+  $pad = [Math]::Max(10, [Math]::Round($bounds.Height * 0.28))
+  [pscustomobject]@{
+    X = $bounds.X - $pad
+    Y = $bounds.Y - $pad
+    Width = $bounds.Width + ($pad * 2)
+    Height = $bounds.Height + ($pad * 2)
+  }
 }
 
 function Convert-ResetTime($value) {
@@ -153,23 +173,29 @@ $window.Topmost = $true
 $window.ShowInTaskbar = $false
 $window.ResizeMode = "NoResize"
 
-$labelColumnWidth = 44
-$valueColumnWidth = 50
-$resetColumnWidth = 82
-$rowHeight = 24
+$baseLabelColumnWidth = 44
+$baseValueColumnWidth = 50
+$baseResetColumnWidth = 82
+$baseRowHeight = 24
+$baseFontSize = 13.5
 
 $grid = New-Object Windows.Controls.Grid
 $grid.Margin = New-Object Windows.Thickness 0
-foreach ($height in @($rowHeight, $rowHeight)) {
+$rowDefinitions = @()
+foreach ($height in @($baseRowHeight, $baseRowHeight)) {
   $row = New-Object Windows.Controls.RowDefinition
   $row.Height = New-Object Windows.GridLength $height
   $grid.RowDefinitions.Add($row)
+  $rowDefinitions += $row
 }
-foreach ($width in @($labelColumnWidth, $valueColumnWidth, $resetColumnWidth)) {
+$columnDefinitions = @()
+foreach ($width in @($baseLabelColumnWidth, $baseValueColumnWidth, $baseResetColumnWidth)) {
   $col = New-Object Windows.Controls.ColumnDefinition
   $col.Width = New-Object Windows.GridLength $width
   $grid.ColumnDefinitions.Add($col)
+  $columnDefinitions += $col
 }
+$textBlocks = @()
 
 function New-Text($text, $col, $row, $bold) {
   $tb = New-Object Windows.Controls.TextBlock
@@ -183,6 +209,7 @@ function New-Text($text, $col, $row, $bold) {
   [Windows.Controls.Grid]::SetColumn($tb, $col)
   [Windows.Controls.Grid]::SetRow($tb, $row)
   $grid.Children.Add($tb) | Out-Null
+  $script:textBlocks += $tb
   return $tb
 }
 
@@ -221,18 +248,38 @@ function Test-QuotaBackgroundLight {
   }
 }
 
+function Apply-Layout($pet) {
+  $scale = [Math]::Max(0.78, [Math]::Min(1.6, ($pet.Height -as [double]) / 87.0))
+  $labelWidth = [Math]::Round($baseLabelColumnWidth * $scale)
+  $valueWidth = [Math]::Round($baseValueColumnWidth * $scale)
+  $resetWidth = [Math]::Round($baseResetColumnWidth * $scale)
+  $rowHeight = [Math]::Round($baseRowHeight * $scale)
+  $fontSize = [Math]::Round($baseFontSize * $scale, 1)
+
+  $columnDefinitions[0].Width = New-Object Windows.GridLength $labelWidth
+  $columnDefinitions[1].Width = New-Object Windows.GridLength $valueWidth
+  $columnDefinitions[2].Width = New-Object Windows.GridLength $resetWidth
+  foreach ($row in $rowDefinitions) {
+    $row.Height = New-Object Windows.GridLength $rowHeight
+  }
+  foreach ($tb in $script:textBlocks) {
+    $tb.FontSize = $fontSize
+  }
+
+  $script:layoutWidth = $labelWidth + $valueWidth + $resetWidth
+  $script:layoutHeight = $rowHeight * 2
+}
+
 function Position-Window {
   $pet = Get-PetBounds
-  if (-not $pet) {
-    [IO.File]::WriteAllText((Join-Path $appHome "last-position.json"), '{"error":"no pet bounds"}')
-    return
-  }
-  $width = $labelColumnWidth + $valueColumnWidth + $resetColumnWidth
-  $height = $rowHeight * 2
+  if (-not $pet) { return }
+  Apply-Layout $pet
+  $width = $script:layoutWidth
+  $height = $script:layoutHeight
   $window.Width = $width
   $window.Height = $height
   $left = $pet.X + $pet.Width / 2 - $width / 2
-  $top = $pet.Y + $pet.Height + 2 - $height * 0.18
+  $top = $pet.Y + $pet.Height + 2 - $height * 0.10
   $screenLeft = [Windows.SystemParameters]::VirtualScreenLeft
   $screenTop = [Windows.SystemParameters]::VirtualScreenTop
   $screenRight = $screenLeft + [Windows.SystemParameters]::VirtualScreenWidth
@@ -301,29 +348,60 @@ $quotaTimer.Add_Tick({
 $quotaTimer.Start()
 Fetch-Quota | Out-Null
 
+function Invoke-SelfCleanup {
+  try {
+    reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v CodexPetQuota /f | Out-Null
+  } catch {}
+  try {
+    $escapedAppHome = $appHome.Replace('"', '""')
+    $cleanup = "/c ping 127.0.0.1 -n 4 > nul & rmdir /s /q ""$escapedAppHome"""
+    Start-Process -FilePath cmd.exe -WorkingDirectory $env:TEMP -WindowStyle Hidden -ArgumentList $cleanup | Out-Null
+  } catch {}
+  [Windows.Threading.Dispatcher]::CurrentDispatcher.InvokeShutdown()
+}
+
+if ($packageDir) {
+  $packageWatchTimer = New-Object Windows.Threading.DispatcherTimer
+  $packageWatchTimer.Interval = [TimeSpan]::FromSeconds(5)
+  $packageWatchTimer.Add_Tick({
+    if ($script:packageDir -and -not (Test-Path -LiteralPath $script:packageDir)) {
+      Invoke-SelfCleanup
+    }
+  })
+  $script:packageDir = $packageDir
+  $packageWatchTimer.Start()
+}
+
 $mouseTimer = New-Object Windows.Threading.DispatcherTimer
 $mouseTimer.Interval = [TimeSpan]::FromMilliseconds(120)
 $mouseTimer.Add_Tick({
   $point = New-Object NativeMouse+POINT
   [NativeMouse]::GetCursorPos([ref]$point) | Out-Null
-  $isDown = ([NativeMouse]::GetAsyncKeyState(0x01) -band 0x8000) -ne 0
+  $mouseState = [NativeMouse]::GetAsyncKeyState(0x01)
+  $isDown = ($mouseState -band 0x8000) -ne 0
+  $clickedSinceLastTick = ($mouseState -band 0x0001) -ne 0
   $pet = Get-PetBounds
-  $hover = Test-PointInBounds $point $pet
+  $hit = Get-ClickBounds $pet
+  $hover = Test-PointInBounds $point $hit
 
   if ($isDown -and -not $script:wasDown) {
     $script:downX = $point.X
     $script:downY = $point.Y
     $script:maxMove = 0
+    $script:downStartedOnPet = Test-PointInBounds $point $hit
   }
   if ($isDown -and $script:wasDown) {
     $script:maxMove = [Math]::Max($script:maxMove, [Math]::Max([Math]::Abs($point.X - $script:downX), [Math]::Abs($point.Y - $script:downY)))
-    if ($script:maxMove -gt 8 -and (Test-PointInBounds ([pscustomobject]@{ X = $script:downX; Y = $script:downY }) $pet)) {
+    if ($script:maxMove -gt 8 -and $script:downStartedOnPet) {
       $window.Hide()
     }
   }
   if (-not $isDown -and $script:wasDown) {
-    $started = Test-PointInBounds ([pscustomobject]@{ X = $script:downX; Y = $script:downY }) $pet
-    if ($started -and $hover -and $script:maxMove -le 8) { Show-Quota $false }
+    if ($script:downStartedOnPet -and $script:maxMove -le 10) { Show-Quota $false }
+    $script:downStartedOnPet = $false
+  }
+  if ($clickedSinceLastTick -and -not $script:wasDown -and $hover) {
+    Show-Quota $false
   }
   if ($hover -and -not $script:isHovering -and ([DateTime]::Now - $script:lastHoverShow).TotalSeconds -gt 7) {
     $script:lastHoverShow = [DateTime]::Now

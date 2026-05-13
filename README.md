@@ -9,46 +9,39 @@ Show Codex remaining quota under your Codex Desktop pet.
 
 ## Install
 
-Install and enable auto-start:
-
 ```powershell
-npx codex-pet-quota@latest install
+npm install -g codex-pet-quota
+codex-pet-quota install
 ```
 
-Then open Codex Desktop, select a pet, and hover or click it.
-
-## Features
-
-- Shows 5-hour and weekly remaining quota.
-- Shows reset time for both windows.
-- Refreshes quota every minute in the background.
-- Proactively warns at `20%`, `10%`, and `5%`.
-- Hides while dragging the pet.
-- Runs outside Codex, so Codex updates should not overwrite it.
-- No Electron download.
+Then click or hover your Codex pet.
 
 ## Commands
 
 ```powershell
-npx codex-pet-quota@latest start
-npx codex-pet-quota@latest status
-npx codex-pet-quota@latest stop
-npx codex-pet-quota@latest uninstall
+codex-pet-quota status
+codex-pet-quota stop
+codex-pet-quota uninstall
+codex-pet-quota -h
+codex-pet-quota --version
 ```
 
-## Privacy
-
-Quota is fetched locally using your existing Codex login. Tokens are read from `~/.codex/auth.json` and are never sent to third-party servers by this tool.
-
-## Platform Status
-
-- Windows: supported.
-- macOS/Linux: planned.
-
-## Development
+To remove everything:
 
 ```powershell
-npm install
-npm run dev
-npm run lint
+codex-pet-quota uninstall
+npm uninstall -g codex-pet-quota
 ```
+
+You can also run `npm uninstall -g codex-pet-quota` directly. The background app will notice that the package was removed and clean up its startup files within a few seconds.
+
+Do not include a version in the uninstall command.
+
+## Notes
+
+- Runs in the background and starts on login.
+- Shows 5-hour and weekly quota plus reset times.
+- Refreshes quota in memory every minute.
+- Warns at `20%`, `10%`, and `5%`.
+- Reads your local Codex login from `~/.codex/auth.json`.
+- No Electron download.

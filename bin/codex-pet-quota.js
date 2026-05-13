@@ -8,13 +8,22 @@ const path = require("node:path");
 const rootDir = path.resolve(__dirname, "..");
 const windowsAppEntry = path.join(rootDir, "src", "windows", "codex-pet-quota.ps1");
 const stateDir = path.join(os.homedir(), ".codex-pet-quota");
+const runtimeDir = path.join(stateDir, "runtime");
+const runtimeAppEntry = path.join(runtimeDir, "codex-pet-quota.ps1");
 const pidFile = path.join(stateDir, "app.pid");
 const configFile = path.join(stateDir, "config.json");
 const autostartScript = path.join(stateDir, "start.vbs");
 const runKeyName = "CodexPetQuota";
+const packageJson = require(path.join(rootDir, "package.json"));
 
 function ensureStateDir() {
   fs.mkdirSync(stateDir, { recursive: true });
+}
+
+function prepareRuntime() {
+  ensureStateDir();
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.copyFileSync(windowsAppEntry, runtimeAppEntry);
 }
 
 function readPid() {
@@ -42,18 +51,20 @@ function launch(args = [], detached = true) {
   }
 
   ensureStateDir();
-  if (detached && !args.includes("--show") && isRunning(readPid())) {
+  if (detached && isRunning(readPid())) {
     console.log(`Codex Pet Quota is already running (pid ${readPid()}).`);
     console.log(`State: ${stateDir}`);
     return;
   }
+  prepareRuntime();
+  const runtimeArgs = ["--package-dir", rootDir, ...args];
   if (detached) {
     const psArgs = [
       "-NoProfile",
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      `Start-Process -FilePath powershell.exe -WorkingDirectory ${quotePs(rootDir)} -WindowStyle Hidden -ArgumentList @('-STA','-NoProfile','-ExecutionPolicy','Bypass','-File',${quotePs(windowsAppEntry)}${args.map((arg) => `,${quotePs(arg)}`).join("")})`
+      `Start-Process -FilePath powershell.exe -WorkingDirectory ${quotePs(stateDir)} -WindowStyle Hidden -ArgumentList @('-STA','-NoProfile','-ExecutionPolicy','Bypass','-File',${quotePs(runtimeAppEntry)}${runtimeArgs.map((arg) => `,${quotePs(arg)}`).join("")})`
     ];
     const result = spawnSync("powershell.exe", psArgs, { stdio: "inherit", windowsHide: true });
     if (result.status && result.status !== 0) {
@@ -65,8 +76,8 @@ function launch(args = [], detached = true) {
     return;
   }
 
-  spawn("powershell.exe", ["-STA", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", windowsAppEntry, ...args], {
-    cwd: rootDir,
+  spawn("powershell.exe", ["-STA", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", runtimeAppEntry, ...runtimeArgs], {
+    cwd: stateDir,
     stdio: "inherit",
     windowsHide: false
   });
@@ -82,7 +93,7 @@ function quoteVbs(value) {
 
 function writeAutostartScript() {
   ensureStateDir();
-  const command = `${quoteVbs(process.execPath)} ${quoteVbs(__filename)} start`;
+  const command = `${quoteVbs(process.execPath)} ${quoteVbs(__filename)} __start`;
   fs.writeFileSync(
     autostartScript,
     [
@@ -110,17 +121,27 @@ function runRegistryCommand(action) {
         ]
       : ["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", runKeyName, "/f"];
 
-  const child = spawn("reg", command, {
+  spawnSync("reg", command, {
     stdio: "ignore",
     windowsHide: true
   });
+}
 
-  child.on("error", () => {});
+function stopWindowsProcesses({ quiet = false } = {}) {
+  if (process.platform !== "win32") return;
+  const escapedEntry = windowsAppEntry.replace(/'/g, "''");
+  const escapedRuntime = runtimeAppEntry.replace(/'/g, "''");
+  const command = `$entry = '${escapedEntry}'; $runtime = '${escapedRuntime}'; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like ('*' + $entry + '*') -or $_.CommandLine -like ('*' + $runtime + '*') -or $_.CommandLine -like '*codex-pet-quota.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+  spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command], {
+    stdio: quiet ? "ignore" : "inherit",
+    windowsHide: true
+  });
 }
 
 function install() {
   ensureStateDir();
   stopRunning({ quiet: true });
+  stopWindowsProcesses({ quiet: true });
   if (!fs.existsSync(configFile)) {
     fs.writeFileSync(
       configFile,
@@ -168,17 +189,22 @@ function stopRunning({ quiet = false } = {}) {
 
 function stop() {
   stopRunning({ quiet: false });
+  stopWindowsProcesses({ quiet: false });
 }
 
 function uninstall() {
+  const quiet = process.argv.includes("--quiet");
   runRegistryCommand("delete");
-  stop();
+  stopRunning({ quiet });
+  stopWindowsProcesses({ quiet });
   try {
-    fs.rmSync(autostartScript, { force: true });
+    fs.rmSync(stateDir, { recursive: true, force: true });
   } catch {}
-  console.log("");
-  console.log("Autostart disabled.");
-  console.log(`You can remove local settings manually: ${stateDir}`);
+  if (!quiet) {
+    console.log("");
+    console.log("Codex Pet Quota stopped.");
+    console.log("Autostart and local state removed.");
+  }
 }
 
 function status() {
@@ -195,17 +221,16 @@ function help() {
   console.log(`codex-pet-quota
 
 Usage:
-  codex-pet-quota install   Install config, enable login start, and launch
-  codex-pet-quota start     Launch in the background
-  codex-pet-quota dev       Launch in the foreground
-  codex-pet-quota show      Launch and show quota once
-  codex-pet-quota stop      Stop the background app
-  codex-pet-quota status    Show process status
-  codex-pet-quota uninstall Stop and show cleanup path
-  codex-pet-quota help      Show this help
+  codex-pet-quota install      Enable startup and launch in the background
+  codex-pet-quota status       Show process status
+  codex-pet-quota stop         Stop the background app
+  codex-pet-quota uninstall    Stop, disable startup, and remove local state
+  codex-pet-quota -h           Show this help
+  codex-pet-quota --version    Show version
 
 Quick start:
-  npx codex-pet-quota@latest install
+  npm install -g codex-pet-quota
+  codex-pet-quota install
 `);
 }
 
@@ -217,20 +242,14 @@ function postinstall() {
   console.log("");
 }
 
-const command = process.argv[2] || "start";
+const command = process.argv[2] || "help";
 
 switch (command) {
   case "install":
     install();
     break;
-  case "start":
+  case "__start":
     launch();
-    break;
-  case "dev":
-    launch(["--dev"], false);
-    break;
-  case "show":
-    launch(["--show"], true);
     break;
   case "stop":
     stop();
@@ -245,6 +264,11 @@ switch (command) {
   case "--help":
   case "-h":
     help();
+    break;
+  case "version":
+  case "--version":
+  case "-v":
+    console.log(packageJson.version);
     break;
   case "postinstall":
     postinstall();
