@@ -21,7 +21,7 @@ Then click or hover your Codex pet.
 | System | Status |
 | --- | --- |
 | Windows | Supported |
-| macOS | Supported |
+| macOS | Supported. Uses a tiny local Swift/AppKit helper; if macOS asks for Command Line Tools, run `xcode-select --install`. |
 | Linux | Not supported yet. The command will print: waiting for Codex for Linux, then we will adapt it. |
 
 ## Commands

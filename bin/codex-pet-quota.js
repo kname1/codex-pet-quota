@@ -19,6 +19,8 @@ const windowsRunKeyName = "CodexPetQuota";
 
 const macSource = path.join(rootDir, "src", "macos", "codex-pet-quota.jxa.js");
 const macRuntime = path.join(runtimeDir, "codex-pet-quota.jxa.js");
+const macSwiftSource = path.join(rootDir, "src", "macos", "codex-pet-quota.swift");
+const macBinary = path.join(runtimeDir, "codex-pet-quota-macos");
 const macLaunchAgentId = "com.kname1.codex-pet-quota";
 const macLaunchAgentPath = path.join(os.homedir(), "Library", "LaunchAgents", `${macLaunchAgentId}.plist`);
 const macLogFile = path.join(stateDir, "macos.log");
@@ -124,6 +126,26 @@ function prepareMacRuntime() {
   ensureStateDir();
   fs.copyFileSync(macSource, macRuntime);
   updateConfig({ packageDir: rootDir });
+  if (process.platform !== "darwin") return;
+  const swiftc = findSwiftc();
+  if (!swiftc) {
+    throw new Error("macOS support needs Swift Command Line Tools. Run: xcode-select --install");
+  }
+  const result = spawnSync(swiftc, [macSwiftSource, "-O", "-o", macBinary], {
+    stdio: "pipe",
+    encoding: "utf8"
+  });
+  if (result.status !== 0) {
+    throw new Error(`Could not build macOS helper:\n${result.stderr || result.stdout || "swiftc failed"}`);
+  }
+}
+
+function findSwiftc() {
+  const direct = spawnSync("/usr/bin/xcrun", ["-find", "swiftc"], { encoding: "utf8", stdio: "pipe" });
+  if (direct.status === 0 && direct.stdout.trim()) return direct.stdout.trim();
+  const fallback = spawnSync("which", ["swiftc"], { encoding: "utf8", stdio: "pipe" });
+  if (fallback.status === 0 && fallback.stdout.trim()) return fallback.stdout.trim();
+  return null;
 }
 
 function stopPid({ quiet = false } = {}) {
@@ -226,13 +248,7 @@ function writeMacLaunchAgent() {
   <string>${escapeXml(macLaunchAgentId)}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/osascript</string>
-    <string>-l</string>
-    <string>JavaScript</string>
-    <string>${escapeXml(macRuntime)}</string>
-    <string>--package-dir</string>
-    <string>${escapeXml(rootDir)}</string>
-    <string>--install</string>
+    <string>${escapeXml(macBinary)}</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -268,10 +284,16 @@ function launchMac(args = [], options = {}) {
     }
     return;
   }
-  prepareMacRuntime();
+  try {
+    prepareMacRuntime();
+  } catch (error) {
+    if (!quiet) console.error(error.message);
+    process.exitCode = 1;
+    return;
+  }
   const out = fs.openSync(macLogFile, "a");
   const err = fs.openSync(macErrorLogFile, "a");
-  const child = spawn("/usr/bin/osascript", ["-l", "JavaScript", macRuntime, "--package-dir", rootDir, ...args], {
+  const child = spawn(macBinary, args, {
     cwd: stateDir,
     detached: true,
     stdio: ["ignore", out, err]
@@ -299,7 +321,13 @@ function install() {
     return;
   }
   if (process.platform === "darwin") {
-    prepareMacRuntime();
+    try {
+      prepareMacRuntime();
+    } catch (error) {
+      console.error(error.message);
+      process.exitCode = 1;
+      return;
+    }
     writeMacLaunchAgent();
     loadMacLaunchAgent();
     sleepMs(1200);
