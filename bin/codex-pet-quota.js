@@ -127,11 +127,24 @@ function prepareMacRuntime() {
   fs.copyFileSync(macSource, macRuntime);
   updateConfig({ packageDir: rootDir });
   if (process.platform !== "darwin") return;
+  if (!isAppleSiliconMac()) {
+    throw new Error("macOS support currently requires an Apple Silicon Mac (M-series, arm64).");
+  }
   const swiftc = findSwiftc();
   if (!swiftc) {
     throw new Error("macOS support needs Swift Command Line Tools. Run: xcode-select --install");
   }
-  const result = spawnSync(swiftc, [macSwiftSource, "-O", "-o", macBinary], {
+  const sdkPath = findMacSdkPath();
+  const compileArgs = [
+    macSwiftSource,
+    "-O",
+    "-target",
+    "arm64-apple-macosx13.0",
+    "-o",
+    macBinary
+  ];
+  if (sdkPath) compileArgs.splice(1, 0, "-sdk", sdkPath);
+  const result = spawnSync(swiftc, compileArgs, {
     stdio: "pipe",
     encoding: "utf8"
   });
@@ -146,6 +159,17 @@ function findSwiftc() {
   const fallback = spawnSync("which", ["swiftc"], { encoding: "utf8", stdio: "pipe" });
   if (fallback.status === 0 && fallback.stdout.trim()) return fallback.stdout.trim();
   return null;
+}
+
+function findMacSdkPath() {
+  const result = spawnSync("/usr/bin/xcrun", ["--sdk", "macosx", "--show-sdk-path"], { encoding: "utf8", stdio: "pipe" });
+  if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
+  return null;
+}
+
+function isAppleSiliconMac() {
+  const result = spawnSync("/usr/bin/uname", ["-m"], { encoding: "utf8", stdio: "pipe" });
+  return result.status === 0 && result.stdout.trim() === "arm64";
 }
 
 function stopPid({ quiet = false } = {}) {
