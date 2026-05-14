@@ -119,13 +119,55 @@ function getPetBounds() {
   if (!state) return null;
   var atom = state["electron-persisted-atom-state"] || state;
   var overlay = atom["electron-avatar-overlay-bounds"] || state["electron-avatar-overlay-bounds"];
-  if (!overlay || !overlay.mascot) return null;
-  return {
-    x: Number(overlay.x || 0) + Number(overlay.mascot.left || 0),
-    y: Number(overlay.y || 0) + Number(overlay.mascot.top || 0),
-    width: Number(overlay.mascot.width || 0),
-    height: Number(overlay.mascot.height || 0)
-  };
+  return normalizePetBounds(overlay) || findPetBounds(state);
+}
+
+function isReasonablePetSize(width, height) {
+  return width >= 20 && width <= 360 && height >= 20 && height <= 360;
+}
+
+function normalizePetBounds(value) {
+  if (!value || typeof value !== "object") return null;
+  if (value.mascot) {
+    var mascot = value.mascot;
+    var width = Number(mascot.width || 0);
+    var height = Number(mascot.height || 0);
+    if (isReasonablePetSize(width, height)) {
+      return {
+        x: Number(value.x || 0) + Number(mascot.left || 0),
+        y: Number(value.y || 0) + Number(mascot.top || 0),
+        width: width,
+        height: height
+      };
+    }
+  }
+  var directWidth = Number(value.width || 0);
+  var directHeight = Number(value.height || 0);
+  if (value.x !== undefined && value.y !== undefined && isReasonablePetSize(directWidth, directHeight)) {
+    return {
+      x: Number(value.x),
+      y: Number(value.y),
+      width: directWidth,
+      height: directHeight
+    };
+  }
+  return null;
+}
+
+function findPetBounds(value, depth) {
+  if (!value || typeof value !== "object") return null;
+  if (depth === undefined) depth = 0;
+  if (depth > 8) return null;
+  var normalized = normalizePetBounds(value);
+  if (normalized) return normalized;
+  for (var key in value) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    var child = value[key];
+    if (!child || typeof child !== "object") continue;
+    var found = findPetBounds(child, depth + 1);
+    if (found) return found;
+  }
+  return null;
 }
 
 function pointInBounds(point, bounds) {
@@ -250,7 +292,8 @@ function setTextColor(labels) {
 }
 
 function applyLayout(pet, labels, content) {
-  var scale = Math.max(0.78, Math.min(1.6, Number(pet.height) / 87));
+  var petHeight = pet ? Number(pet.height) : 87;
+  var scale = Math.max(0.78, Math.min(1.6, petHeight / 87));
   var labelWidth = Math.round(44 * scale);
   var valueWidth = Math.round(50 * scale);
   var resetWidth = Math.round(82 * scale);
@@ -277,11 +320,12 @@ function applyLayout(pet, labels, content) {
 
 function positionWindow(panel, labels, content) {
   var pet = getPetBounds();
-  if (!pet) return false;
   applyLayout(pet, labels, content);
   var frame = mainScreenFrame();
-  var leftTop = Math.max(0, Math.min(pet.x + pet.width / 2 - layoutWidth / 2, Number(frame.size.width) - layoutWidth));
-  var top = Math.max(0, Math.min(pet.y + pet.height + 2 - layoutHeight * 0.1, Number(frame.size.height) - layoutHeight));
+  var anchorX = pet ? pet.x + pet.width / 2 : Number(frame.size.width) / 2;
+  var anchorTop = pet ? pet.y + pet.height + 2 - layoutHeight * 0.1 : Number(frame.size.height) / 2;
+  var leftTop = Math.max(0, Math.min(anchorX - layoutWidth / 2, Number(frame.size.width) - layoutWidth));
+  var top = Math.max(0, Math.min(anchorTop, Number(frame.size.height) - layoutHeight));
   var cocoaY = Number(frame.size.height) - top - layoutHeight;
   panel.setFrameDisplay($.NSMakeRect(leftTop, cocoaY, layoutWidth, layoutHeight), true);
   return true;
@@ -294,22 +338,24 @@ function updateTexts(labels, data) {
   labels.weekReset.setStringValue(data.weekReset);
 }
 
-function callPanelMethod(panel, name, arg) {
-  var method = panel[name];
-  if (typeof method !== "function") return false;
-  try {
-    if (arg === undefined) method();
-    else method(arg);
-    return true;
-  } catch (error) {
-    return false;
-  }
-}
-
 function showPanel(panel) {
-  if (callPanelMethod(panel, "orderFrontRegardless")) return;
-  if (callPanelMethod(panel, "orderFront", $())) return;
-  callPanelMethod(panel, "makeKeyAndOrderFront", $());
+  try {
+    if (typeof panel.orderFrontRegardless === "function") {
+      panel.orderFrontRegardless();
+      return;
+    }
+  } catch (error) {}
+  try {
+    if (typeof panel.orderFront === "function") {
+      panel.orderFront($());
+      return;
+    }
+  } catch (error) {}
+  try {
+    if (typeof panel.makeKeyAndOrderFront === "function") {
+      panel.makeKeyAndOrderFront($());
+    }
+  } catch (error) {}
 }
 
 function cleanupAndExit() {
@@ -390,6 +436,7 @@ function run() {
   }
 
   localFetchQuota();
+  showQuota();
 
   while (true) {
     if (packageDir && !fileExists(packageDir)) cleanupAndExit();
