@@ -69,7 +69,6 @@ final class QuotaOverlay {
   func start() {
     quota = fetchQuota()
     lastQuotaFetch = Date()
-    showQuota(animated: false)
     Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
       self?.tick()
     }
@@ -129,7 +128,10 @@ final class QuotaOverlay {
 
   private func showQuota(animated: Bool) {
     setTextColor()
-    positionWindow()
+    guard positionWindow() else {
+      hideQuota()
+      return
+    }
     updateTexts()
     panel.alphaValue = 1
     panel.orderFrontRegardless()
@@ -168,15 +170,16 @@ final class QuotaOverlay {
     [fiveValue, weekValue].forEach { $0.textColor = strong }
   }
 
-  private func positionWindow() {
-    let pet = petBounds()
+  private func positionWindow() -> Bool {
+    guard let pet = petBounds() else { return false }
     applyLayout(pet: pet)
     let screenFrame = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-    let anchorX = pet.map { $0.midX } ?? screenFrame.midX
-    let top = pet.map { $0.maxY + 2 - layoutSize.height * 0.1 } ?? screenFrame.midY
+    let anchorX = pet.midX
+    let top = pet.maxY + 2 - layoutSize.height * 0.1
     let x = min(max(screenFrame.minX, anchorX - layoutSize.width / 2), screenFrame.maxX - layoutSize.width)
     let y = screenFrame.maxY - min(max(screenFrame.minY, top), screenFrame.maxY - layoutSize.height) - layoutSize.height
     panel.setFrame(NSRect(x: x, y: y, width: layoutSize.width, height: layoutSize.height), display: true)
+    return true
   }
 
   private func applyLayout(pet: CGRect?) {

@@ -272,7 +272,7 @@ function Apply-Layout($pet) {
 
 function Position-Window {
   $pet = Get-PetBounds
-  if (-not $pet) { return }
+  if (-not $pet) { return $false }
   Apply-Layout $pet
   $width = $script:layoutWidth
   $height = $script:layoutHeight
@@ -286,6 +286,7 @@ function Position-Window {
   $screenBottom = $screenTop + [Windows.SystemParameters]::VirtualScreenHeight
   $window.Left = [Math]::Max($screenLeft, [Math]::Min($left, $screenRight - $width))
   $window.Top = [Math]::Max($screenTop, [Math]::Min($top, $screenBottom - $height))
+  return $true
 }
 
 function Update-Texts($quota) {
@@ -306,7 +307,10 @@ function Ensure-WindowVisible {
 
 function Show-Quota([bool]$animate) {
   Apply-Theme
-  Position-Window
+  if (-not (Position-Window)) {
+    $window.Hide()
+    return
+  }
   Update-Texts (Ensure-Quota)
   $window.WindowState = "Normal"
   if (-not $window.IsVisible) { $window.Show() } else { $window.Activate() | Out-Null }

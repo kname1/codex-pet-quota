@@ -1,6 +1,6 @@
 {
   "name": "codex-pet-quota",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "A companion quota display for Codex Desktop pets that shows 5h and weekly remaining usage.",
   "license": "Apache-2.0",
   "author": "kname1",
