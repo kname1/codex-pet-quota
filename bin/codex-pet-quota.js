@@ -21,6 +21,8 @@ const macSource = path.join(rootDir, "src", "macos", "codex-pet-quota.jxa.js");
 const macRuntime = path.join(runtimeDir, "codex-pet-quota.jxa.js");
 const macLaunchAgentId = "com.kname1.codex-pet-quota";
 const macLaunchAgentPath = path.join(os.homedir(), "Library", "LaunchAgents", `${macLaunchAgentId}.plist`);
+const macLogFile = path.join(stateDir, "macos.log");
+const macErrorLogFile = path.join(stateDir, "macos-error.log");
 
 function ensureStateDir() {
   fs.mkdirSync(runtimeDir, { recursive: true });
@@ -68,6 +70,23 @@ function isRunning(pid) {
 
 function unsupportedLinux() {
   console.log("Linux support will be added after Codex for Linux is available.");
+}
+
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function tailFile(file, lines = 12) {
+  try {
+    return fs
+      .readFileSync(file, "utf8")
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .slice(-lines)
+      .join("\n");
+  } catch {
+    return "";
+  }
 }
 
 function quotePs(value) {
@@ -230,21 +249,30 @@ function loadMacLaunchAgent() {
   spawnSync("launchctl", ["kickstart", "-k", `${macGuiTarget()}/${macLaunchAgentId}`], { stdio: "ignore" });
 }
 
-function launchMac(args = []) {
+function launchMac(args = [], options = {}) {
+  const quiet = Boolean(options.quiet);
   if (isRunning(readPid())) {
-    console.log(`Codex Pet Quota is already running (pid ${readPid()}).`);
-    console.log(`State: ${stateDir}`);
+    if (!quiet) {
+      console.log(`Codex Pet Quota is already running (pid ${readPid()}).`);
+      console.log(`State: ${stateDir}`);
+    }
     return;
   }
   prepareMacRuntime();
+  const out = fs.openSync(macLogFile, "a");
+  const err = fs.openSync(macErrorLogFile, "a");
   const child = spawn("/usr/bin/osascript", ["-l", "JavaScript", macRuntime, "--package-dir", rootDir, ...args], {
     cwd: stateDir,
     detached: true,
-    stdio: "ignore"
+    stdio: ["ignore", out, err]
   });
   child.unref();
-  console.log("Codex Pet Quota started.");
-  console.log(`State: ${stateDir}`);
+  fs.closeSync(out);
+  fs.closeSync(err);
+  if (!quiet) {
+    console.log("Codex Pet Quota started.");
+    console.log(`State: ${stateDir}`);
+  }
 }
 
 function install() {
@@ -264,11 +292,23 @@ function install() {
     prepareMacRuntime();
     writeMacLaunchAgent();
     loadMacLaunchAgent();
-    setTimeout(() => {
-      if (!isRunning(readPid())) launchMac(["--install"]);
-    }, 250);
-    console.log("Codex Pet Quota started.");
-    console.log(`State: ${stateDir}`);
+    sleepMs(1200);
+    if (!isRunning(readPid())) {
+      launchMac(["--install"], { quiet: true });
+      sleepMs(1200);
+    }
+    if (isRunning(readPid())) {
+      console.log("Codex Pet Quota started.");
+      console.log(`State: ${stateDir}`);
+    } else {
+      console.error("Codex Pet Quota failed to start.");
+      const errorTail = tailFile(macErrorLogFile);
+      if (errorTail) {
+        console.error("");
+        console.error(errorTail);
+      }
+      process.exitCode = 1;
+    }
     return;
   }
   console.error(`Unsupported platform: ${process.platform}`);
@@ -323,6 +363,14 @@ function status() {
     console.log(`Codex Pet Quota is running (pid ${pid}).`);
   } else {
     console.log("Codex Pet Quota is not running.");
+    if (process.platform === "darwin") {
+      const errorTail = tailFile(macErrorLogFile, 8);
+      if (errorTail) {
+        console.log("");
+        console.log("Last macOS error:");
+        console.log(errorTail);
+      }
+    }
   }
   console.log(`State: ${stateDir}`);
 }
