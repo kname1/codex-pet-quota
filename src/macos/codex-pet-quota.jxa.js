@@ -294,6 +294,24 @@ function updateTexts(labels, data) {
   labels.weekReset.setStringValue(data.weekReset);
 }
 
+function callPanelMethod(panel, name, arg) {
+  var method = panel[name];
+  if (typeof method !== "function") return false;
+  try {
+    if (arg === undefined) method();
+    else method(arg);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function showPanel(panel) {
+  if (callPanelMethod(panel, "orderFrontRegardless")) return;
+  if (callPanelMethod(panel, "orderFront", $())) return;
+  callPanelMethod(panel, "makeKeyAndOrderFront", $());
+}
+
 function cleanupAndExit() {
   try {
     scriptApp.doShellScript([
@@ -367,7 +385,7 @@ function run() {
     if (!positionWindow(panel, labels, content)) return;
     updateTexts(labels, localEnsureQuota());
     panel.setAlphaValue(1);
-    panel.orderFrontRegardless();
+    showPanel(panel);
     visibleUntil = nowMs() + 7000;
   }
 
