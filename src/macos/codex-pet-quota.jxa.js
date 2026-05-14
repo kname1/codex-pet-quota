@@ -19,7 +19,14 @@ var layoutHeight = 48;
 
 function objcValue(owner, name) {
   var value = owner[name];
-  return typeof value === "function" ? value.call(owner) : value;
+  if (typeof value === "function") {
+    try {
+      return value();
+    } catch (error) {
+      return value;
+    }
+  }
+  return value;
 }
 
 function nsString(value) {
