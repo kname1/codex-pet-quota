@@ -304,10 +304,25 @@ func petBounds() -> CGRect? {
   guard let state = readJSON(statePath) else { return nil }
   if let dict = state as? [String: Any] {
     let atom = dict["electron-persisted-atom-state"] as? [String: Any] ?? dict
+    guard petOverlayOpen(root: dict, atom: atom) else { return nil }
     let overlay = atom["electron-avatar-overlay-bounds"] ?? dict["electron-avatar-overlay-bounds"]
     return normalizePetBounds(overlay) ?? findPetBounds(dict, depth: 0)
   }
   return nil
+}
+
+func petOverlayOpen(root: [String: Any], atom: [String: Any]) -> Bool {
+  if let value = root["electron-avatar-overlay-open"] ?? atom["electron-avatar-overlay-open"] {
+    return boolValue(value)
+  }
+  return false
+}
+
+func boolValue(_ value: Any) -> Bool {
+  if let value = value as? Bool { return value }
+  if let value = value as? NSNumber { return value.boolValue }
+  if let value = value as? String { return value.lowercased() == "true" }
+  return false
 }
 
 func normalizePetBounds(_ value: Any?) -> CGRect? {

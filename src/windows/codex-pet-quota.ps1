@@ -61,6 +61,10 @@ function Get-PetBounds {
   try {
     $state = Get-Content $statePath -Raw -Encoding UTF8 | ConvertFrom-Json
     $atom = $state.'electron-persisted-atom-state'
+    $overlayOpen = $state.'electron-avatar-overlay-open'
+    if ($null -eq $overlayOpen -and $atom) { $overlayOpen = $atom.'electron-avatar-overlay-open' }
+    if ($overlayOpen -ne $true) { return $null }
+
     $overlay = $atom.'electron-avatar-overlay-bounds'
     if (-not $overlay) { $overlay = $state.'electron-avatar-overlay-bounds' }
     if (-not $overlay -or -not $overlay.mascot) { return $null }
