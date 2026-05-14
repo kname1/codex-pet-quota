@@ -44,4 +44,3 @@ Do not include a version in the uninstall command.
 - Refreshes quota in memory every minute.
 - Warns at `20%`, `10%`, and `5%`.
 - Reads your local Codex login from `~/.codex/auth.json`.
-- No Electron download.
