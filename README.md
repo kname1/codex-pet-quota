@@ -9,16 +9,24 @@ Show Codex remaining quota under your Codex Desktop pet.
 
 ## Install
 
-```powershell
+```sh
 npm install -g codex-pet-quota
 codex-pet-quota install
 ```
 
 Then click or hover your Codex pet.
 
+## Support
+
+| System | Status |
+| --- | --- |
+| Windows | Supported |
+| macOS | Supported |
+| Linux | Not supported yet. The command will print: waiting for Codex for Linux, then we will adapt it. |
+
 ## Commands
 
-```powershell
+```sh
 codex-pet-quota status
 codex-pet-quota stop
 codex-pet-quota uninstall
@@ -28,7 +36,7 @@ codex-pet-quota --version
 
 To remove everything:
 
-```powershell
+```sh
 codex-pet-quota uninstall
 npm uninstall -g codex-pet-quota
 ```

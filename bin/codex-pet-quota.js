@@ -6,24 +6,46 @@ const os = require("node:os");
 const path = require("node:path");
 
 const rootDir = path.resolve(__dirname, "..");
-const windowsAppEntry = path.join(rootDir, "src", "windows", "codex-pet-quota.ps1");
+const packageJson = require(path.join(rootDir, "package.json"));
 const stateDir = path.join(os.homedir(), ".codex-pet-quota");
 const runtimeDir = path.join(stateDir, "runtime");
-const runtimeAppEntry = path.join(runtimeDir, "codex-pet-quota.ps1");
 const pidFile = path.join(stateDir, "app.pid");
 const configFile = path.join(stateDir, "config.json");
-const autostartScript = path.join(stateDir, "start.vbs");
-const runKeyName = "CodexPetQuota";
-const packageJson = require(path.join(rootDir, "package.json"));
+
+const windowsSource = path.join(rootDir, "src", "windows", "codex-pet-quota.ps1");
+const windowsRuntime = path.join(runtimeDir, "codex-pet-quota.ps1");
+const windowsAutostartScript = path.join(stateDir, "start.vbs");
+const windowsRunKeyName = "CodexPetQuota";
+
+const macSource = path.join(rootDir, "src", "macos", "codex-pet-quota.jxa.js");
+const macRuntime = path.join(runtimeDir, "codex-pet-quota.jxa.js");
+const macLaunchAgentId = "com.kname1.codex-pet-quota";
+const macLaunchAgentPath = path.join(os.homedir(), "Library", "LaunchAgents", `${macLaunchAgentId}.plist`);
 
 function ensureStateDir() {
-  fs.mkdirSync(stateDir, { recursive: true });
+  fs.mkdirSync(runtimeDir, { recursive: true });
 }
 
-function prepareRuntime() {
+function ensureConfig() {
   ensureStateDir();
-  fs.mkdirSync(runtimeDir, { recursive: true });
-  fs.copyFileSync(windowsAppEntry, runtimeAppEntry);
+  if (!fs.existsSync(configFile)) {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify(
+        {
+          autoStart: true,
+          refreshIntervalMs: 60000,
+          bubbleDismissMs: 7000,
+          hotspot: {
+            enabled: true,
+            padding: 10
+          }
+        },
+        null,
+        2
+      )
+    );
+  }
 }
 
 function readPid() {
@@ -44,43 +66,8 @@ function isRunning(pid) {
   }
 }
 
-function launch(args = [], detached = true) {
-  if (process.platform !== "win32") {
-    console.error("Codex Pet Quota currently supports Windows. macOS and Linux support is planned.");
-    process.exit(1);
-  }
-
-  ensureStateDir();
-  if (detached && isRunning(readPid())) {
-    console.log(`Codex Pet Quota is already running (pid ${readPid()}).`);
-    console.log(`State: ${stateDir}`);
-    return;
-  }
-  prepareRuntime();
-  const runtimeArgs = ["--package-dir", rootDir, ...args];
-  if (detached) {
-    const psArgs = [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-Command",
-      `Start-Process -FilePath powershell.exe -WorkingDirectory ${quotePs(stateDir)} -WindowStyle Hidden -ArgumentList @('-STA','-NoProfile','-ExecutionPolicy','Bypass','-File',${quotePs(runtimeAppEntry)}${runtimeArgs.map((arg) => `,${quotePs(arg)}`).join("")})`
-    ];
-    const result = spawnSync("powershell.exe", psArgs, { stdio: "inherit", windowsHide: true });
-    if (result.status && result.status !== 0) {
-      process.exitCode = result.status;
-      return;
-    }
-    console.log("Codex Pet Quota started.");
-    console.log(`State: ${stateDir}`);
-    return;
-  }
-
-  spawn("powershell.exe", ["-STA", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", runtimeAppEntry, ...runtimeArgs], {
-    cwd: stateDir,
-    stdio: "inherit",
-    windowsHide: false
-  });
+function unsupportedLinux() {
+  console.log("Linux support will be added after Codex for Linux is available.");
 }
 
 function quotePs(value) {
@@ -91,87 +78,31 @@ function quoteVbs(value) {
   return `"${String(value).replace(/"/g, '""')}"`;
 }
 
-function writeAutostartScript() {
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function prepareWindowsRuntime() {
   ensureStateDir();
-  const command = `${quoteVbs(process.execPath)} ${quoteVbs(__filename)} __start`;
-  fs.writeFileSync(
-    autostartScript,
-    [
-      'Set shell = CreateObject("WScript.Shell")',
-      `shell.Run ${quoteVbs(command)}, 0, False`
-    ].join("\r\n")
-  );
+  fs.copyFileSync(windowsSource, windowsRuntime);
 }
 
-function runRegistryCommand(action) {
-  if (process.platform !== "win32") return;
-
-  const command =
-    action === "add"
-      ? [
-          "add",
-          "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-          "/v",
-          runKeyName,
-          "/t",
-          "REG_SZ",
-          "/d",
-          `wscript.exe "${autostartScript}"`,
-          "/f"
-        ]
-      : ["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", runKeyName, "/f"];
-
-  spawnSync("reg", command, {
-    stdio: "ignore",
-    windowsHide: true
-  });
-}
-
-function stopWindowsProcesses({ quiet = false } = {}) {
-  if (process.platform !== "win32") return;
-  const escapedEntry = windowsAppEntry.replace(/'/g, "''");
-  const escapedRuntime = runtimeAppEntry.replace(/'/g, "''");
-  const command = `$entry = '${escapedEntry}'; $runtime = '${escapedRuntime}'; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like ('*' + $entry + '*') -or $_.CommandLine -like ('*' + $runtime + '*') -or $_.CommandLine -like '*codex-pet-quota.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
-  spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command], {
-    stdio: quiet ? "ignore" : "inherit",
-    windowsHide: true
-  });
-}
-
-function install() {
+function prepareMacRuntime() {
   ensureStateDir();
-  stopRunning({ quiet: true });
-  stopWindowsProcesses({ quiet: true });
-  if (!fs.existsSync(configFile)) {
-    fs.writeFileSync(
-      configFile,
-      JSON.stringify(
-        {
-          autoStart: true,
-          refreshIntervalMs: 60000,
-          bubbleDismissMs: 7000,
-          hotspot: {
-            enabled: true,
-            padding: 10
-          }
-        },
-        null,
-        2
-      )
-    );
-  }
-  writeAutostartScript();
-  runRegistryCommand("add");
-  launch(["--install"], true);
+  fs.copyFileSync(macSource, macRuntime);
 }
 
-function stopRunning({ quiet = false } = {}) {
+function stopPid({ quiet = false } = {}) {
   const pid = readPid();
   if (!isRunning(pid)) {
     if (!quiet) console.log("Codex Pet Quota is not running.");
     return false;
   }
-
   try {
     if (process.platform === "win32") {
       spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: quiet ? "ignore" : "inherit", windowsHide: true });
@@ -187,16 +118,191 @@ function stopRunning({ quiet = false } = {}) {
   }
 }
 
-function stop() {
-  stopRunning({ quiet: false });
-  stopWindowsProcesses({ quiet: false });
+function stopWindowsProcesses({ quiet = false } = {}) {
+  if (process.platform !== "win32") return;
+  const escapedSource = windowsSource.replace(/'/g, "''");
+  const escapedRuntime = windowsRuntime.replace(/'/g, "''");
+  const command = `$source = '${escapedSource}'; $runtime = '${escapedRuntime}'; Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like ('*' + $source + '*') -or $_.CommandLine -like ('*' + $runtime + '*') -or $_.CommandLine -like '*codex-pet-quota.ps1*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+  spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command], {
+    stdio: quiet ? "ignore" : "inherit",
+    windowsHide: true
+  });
+}
+
+function writeWindowsAutostart() {
+  const command = `${quoteVbs(process.execPath)} ${quoteVbs(__filename)} __start`;
+  fs.writeFileSync(
+    windowsAutostartScript,
+    ['Set shell = CreateObject("WScript.Shell")', `shell.Run ${quoteVbs(command)}, 0, False`].join("\r\n")
+  );
+  spawnSync(
+    "reg",
+    [
+      "add",
+      "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "/v",
+      windowsRunKeyName,
+      "/t",
+      "REG_SZ",
+      "/d",
+      `wscript.exe "${windowsAutostartScript}"`,
+      "/f"
+    ],
+    { stdio: "ignore", windowsHide: true }
+  );
+}
+
+function deleteWindowsAutostart() {
+  spawnSync("reg", ["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", windowsRunKeyName, "/f"], {
+    stdio: "ignore",
+    windowsHide: true
+  });
+}
+
+function launchWindows(args = []) {
+  if (isRunning(readPid())) {
+    console.log(`Codex Pet Quota is already running (pid ${readPid()}).`);
+    console.log(`State: ${stateDir}`);
+    return;
+  }
+  prepareWindowsRuntime();
+  const runtimeArgs = ["--package-dir", rootDir, ...args];
+  const psArgs = [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    `Start-Process -FilePath powershell.exe -WorkingDirectory ${quotePs(stateDir)} -WindowStyle Hidden -ArgumentList @('-STA','-NoProfile','-ExecutionPolicy','Bypass','-File',${quotePs(windowsRuntime)}${runtimeArgs.map((arg) => `,${quotePs(arg)}`).join("")})`
+  ];
+  const result = spawnSync("powershell.exe", psArgs, { stdio: "inherit", windowsHide: true });
+  if (result.status && result.status !== 0) {
+    process.exitCode = result.status;
+    return;
+  }
+  console.log("Codex Pet Quota started.");
+  console.log(`State: ${stateDir}`);
+}
+
+function macGuiTarget() {
+  return `gui/${process.getuid()}`;
+}
+
+function writeMacLaunchAgent() {
+  fs.mkdirSync(path.dirname(macLaunchAgentPath), { recursive: true });
+  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${escapeXml(macLaunchAgentId)}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/osascript</string>
+    <string>-l</string>
+    <string>JavaScript</string>
+    <string>${escapeXml(macRuntime)}</string>
+    <string>--package-dir</string>
+    <string>${escapeXml(rootDir)}</string>
+    <string>--install</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>${escapeXml(path.join(stateDir, "macos.log"))}</string>
+  <key>StandardErrorPath</key>
+  <string>${escapeXml(path.join(stateDir, "macos-error.log"))}</string>
+</dict>
+</plist>
+`;
+  fs.writeFileSync(macLaunchAgentPath, plist);
+}
+
+function unloadMacLaunchAgent() {
+  if (process.platform !== "darwin") return;
+  spawnSync("launchctl", ["bootout", macGuiTarget(), macLaunchAgentPath], { stdio: "ignore" });
+}
+
+function loadMacLaunchAgent() {
+  unloadMacLaunchAgent();
+  spawnSync("launchctl", ["bootstrap", macGuiTarget(), macLaunchAgentPath], { stdio: "ignore" });
+  spawnSync("launchctl", ["kickstart", "-k", `${macGuiTarget()}/${macLaunchAgentId}`], { stdio: "ignore" });
+}
+
+function launchMac(args = []) {
+  if (isRunning(readPid())) {
+    console.log(`Codex Pet Quota is already running (pid ${readPid()}).`);
+    console.log(`State: ${stateDir}`);
+    return;
+  }
+  prepareMacRuntime();
+  const child = spawn("/usr/bin/osascript", ["-l", "JavaScript", macRuntime, "--package-dir", rootDir, ...args], {
+    cwd: stateDir,
+    detached: true,
+    stdio: "ignore"
+  });
+  child.unref();
+  console.log("Codex Pet Quota started.");
+  console.log(`State: ${stateDir}`);
+}
+
+function install() {
+  if (process.platform === "linux") {
+    unsupportedLinux();
+    return;
+  }
+  ensureConfig();
+  stop({ quiet: true });
+  if (process.platform === "win32") {
+    prepareWindowsRuntime();
+    writeWindowsAutostart();
+    launchWindows(["--install"]);
+    return;
+  }
+  if (process.platform === "darwin") {
+    prepareMacRuntime();
+    writeMacLaunchAgent();
+    loadMacLaunchAgent();
+    setTimeout(() => {
+      if (!isRunning(readPid())) launchMac(["--install"]);
+    }, 250);
+    console.log("Codex Pet Quota started.");
+    console.log(`State: ${stateDir}`);
+    return;
+  }
+  console.error(`Unsupported platform: ${process.platform}`);
+  process.exitCode = 1;
+}
+
+function stop(options = {}) {
+  const quiet = Boolean(options.quiet);
+  if (process.platform === "linux") {
+    if (!quiet) unsupportedLinux();
+    return;
+  }
+  stopPid({ quiet });
+  if (process.platform === "win32") {
+    stopWindowsProcesses({ quiet });
+  } else if (process.platform === "darwin") {
+    unloadMacLaunchAgent();
+  }
 }
 
 function uninstall() {
   const quiet = process.argv.includes("--quiet");
-  runRegistryCommand("delete");
-  stopRunning({ quiet });
-  stopWindowsProcesses({ quiet });
+  if (process.platform === "linux") {
+    if (!quiet) unsupportedLinux();
+    return;
+  }
+  if (process.platform === "win32") deleteWindowsAutostart();
+  if (process.platform === "darwin") {
+    unloadMacLaunchAgent();
+    try {
+      fs.rmSync(macLaunchAgentPath, { force: true });
+    } catch {}
+  }
+  stop({ quiet });
   try {
     fs.rmSync(stateDir, { recursive: true, force: true });
   } catch {}
@@ -208,6 +314,10 @@ function uninstall() {
 }
 
 function status() {
+  if (process.platform === "linux") {
+    unsupportedLinux();
+    return;
+  }
   const pid = readPid();
   if (isRunning(pid)) {
     console.log(`Codex Pet Quota is running (pid ${pid}).`);
@@ -249,7 +359,9 @@ switch (command) {
     install();
     break;
   case "__start":
-    launch();
+    if (process.platform === "win32") launchWindows(["--install"]);
+    else if (process.platform === "darwin") launchMac(["--install"]);
+    else unsupportedLinux();
     break;
   case "stop":
     stop();
