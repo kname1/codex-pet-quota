@@ -11,10 +11,16 @@ var statePath = codexHome + "/.codex-global-state.json";
 var authPath = codexHome + "/auth.json";
 var appHome = home + "/.codex-pet-quota";
 var pidPath = appHome + "/app.pid";
+var configPath = appHome + "/config.json";
 var fatalLogPath = appHome + "/macos-error.log";
 var launchAgentPath = home + "/Library/LaunchAgents/com.kname1.codex-pet-quota.plist";
 var layoutWidth = 176;
 var layoutHeight = 48;
+
+function objcValue(owner, name) {
+  var value = owner[name];
+  return typeof value === "function" ? value.call(owner) : value;
+}
 
 function nsString(value) {
   return $.NSString.alloc.initWithUTF8String(String(value));
@@ -96,12 +102,8 @@ function remainingText(window) {
 }
 
 function getPackageDir() {
-  var args = $.NSProcessInfo.processInfo.arguments;
-  var count = Number(args.count);
-  for (var i = 0; i < count; i += 1) {
-    var value = ObjC.unwrap(args.objectAtIndex(i));
-    if (value === "--package-dir" && i + 1 < count) return ObjC.unwrap(args.objectAtIndex(i + 1));
-  }
+  var config = parseJson(configPath);
+  if (config && config.packageDir) return String(config.packageDir);
   return "";
 }
 
@@ -311,7 +313,8 @@ function run() {
   var maxMove = 0;
   var visibleUntil = 0;
   $.NSFileManager.defaultManager.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(appHome, true, null, null);
-  writeText(pidPath, String(Number($.NSProcessInfo.processInfo.processIdentifier)));
+  var processInfo = objcValue($.NSProcessInfo, "processInfo");
+  writeText(pidPath, String(Number(objcValue(processInfo, "processIdentifier"))));
 
   $.NSApplication.sharedApplication.setActivationPolicy(1);
   $.NSApplication.sharedApplication.finishLaunching;

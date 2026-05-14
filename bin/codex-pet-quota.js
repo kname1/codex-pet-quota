@@ -50,6 +50,15 @@ function ensureConfig() {
   }
 }
 
+function updateConfig(patch) {
+  ensureConfig();
+  let config = {};
+  try {
+    config = JSON.parse(fs.readFileSync(configFile, "utf8"));
+  } catch {}
+  fs.writeFileSync(configFile, JSON.stringify({ ...config, ...patch }, null, 2));
+}
+
 function readPid() {
   try {
     return Number(fs.readFileSync(pidFile, "utf8").trim());
@@ -114,6 +123,7 @@ function prepareWindowsRuntime() {
 function prepareMacRuntime() {
   ensureStateDir();
   fs.copyFileSync(macSource, macRuntime);
+  updateConfig({ packageDir: rootDir });
 }
 
 function stopPid({ quiet = false } = {}) {
