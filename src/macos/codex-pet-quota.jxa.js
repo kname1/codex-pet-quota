@@ -27,14 +27,14 @@ function nsString(value) {
 }
 
 function writeText(path, value) {
-  nsString(value).writeToFileAtomicallyEncodingError(path, true, $.NSUTF8StringEncoding, null);
+  nsString(value).writeToFileAtomicallyEncodingError(path, true, $.NSUTF8StringEncoding, $());
 }
 
 function appendText(path, value) {
   var manager = $.NSFileManager.defaultManager;
   var data = nsString(value).dataUsingEncoding($.NSUTF8StringEncoding);
   if (!manager.fileExistsAtPath(path)) {
-    manager.createFileAtPathContentsAttributes(path, data, null);
+    manager.createFileAtPathContentsAttributes(path, data, $());
     return;
   }
   var handle = $.NSFileHandle.fileHandleForWritingAtPath(path);
@@ -45,7 +45,7 @@ function appendText(path, value) {
 
 function logFatal(error) {
   try {
-    $.NSFileManager.defaultManager.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(appHome, true, null, null);
+    $.NSFileManager.defaultManager.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(appHome, true, $(), $());
     appendText(fatalLogPath, "\n[" + new Date().toISOString() + "] " + String(error) + "\n");
   } catch (ignored) {}
 }
@@ -64,7 +64,7 @@ function fileExists(path) {
 
 function readText(path) {
   try {
-    var text = $.NSString.stringWithContentsOfFileEncodingError(path, $.NSUTF8StringEncoding, null);
+    var text = $.NSString.stringWithContentsOfFileEncodingError(path, $.NSUTF8StringEncoding, $());
     if (!text) return null;
     return ObjC.unwrap(text);
   } catch (error) {
@@ -312,7 +312,7 @@ function run() {
   var downY = 0;
   var maxMove = 0;
   var visibleUntil = 0;
-  $.NSFileManager.defaultManager.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(appHome, true, null, null);
+  $.NSFileManager.defaultManager.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(appHome, true, $(), $());
   var processInfo = objcValue($.NSProcessInfo, "processInfo");
   writeText(pidPath, String(Number(objcValue(processInfo, "processIdentifier"))));
 
@@ -351,7 +351,7 @@ function run() {
   }
 
   function hideQuota() {
-    panel.orderOut(null);
+    panel.orderOut($());
     visibleUntil = 0;
   }
 
